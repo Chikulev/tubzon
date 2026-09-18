@@ -2,24 +2,21 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>OZON analytics</title>
-    <!-- Загружаем стили stlite -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.39.0/build/stlite.css" />
+    <title>DWINA | OS</title>
+    <!-- Обновленная, стабильная версия stlite -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.71.1/build/stlite.css" />
   </head>
   <body style="margin: 0; padding: 0;">
     <div id="root"></div>
-    <!-- Загружаем движок stlite -->
-    <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.39.0/build/stlite.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.71.1/build/stlite.js"></script>
     <script>
       stlite.mount(
         {
-          // Указываем нужные библиотеки (stlite скачает их сам)
           requirements: ["pandas", "plotly"],
           entrypoint: "app.py",
           files: {
-            // Подтягиваем твой файл app.py из репозитория
             "app.py": {
-              url: "app.py"
+              url: "./app.py" 
             }
           }
         },

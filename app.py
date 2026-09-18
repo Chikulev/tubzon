@@ -6,6 +6,20 @@ from datetime import datetime
 import calendar
 import numpy as np
 
+import urllib.parse
+import streamlit.components.v1 as components
+
+# Словари месяцев вынесены на глобальный уровень для безопасного доступа отовсюду
+ru_months_nom = {1:'Январь', 2:'Февраль', 3:'Март', 4:'Апрель', 5:'Май', 6:'Июнь', 7:'Июль', 8:'Август', 9:'Сентябрь', 10:'Октябрь', 11:'Ноябрь', 12:'Декабрь'}
+ru_months_dat = {1:'январю', 2:'февралю', 3:'марту', 4:'апрелю', 5:'маю', 6:'июню', 7:'июлю', 8:'августу', 9:'сентябрю', 10:'октябрю', 11:'ноябрю', 12:'декабрю'}
+
+# Изолированные хелперы для безопасного форматирования чисел (никаких глобальных .replace() для текста)
+def fmt_money(val):
+    return f"{val:,.0f} ₽".replace(',', ' ')
+
+def fmt_num(val):
+    return f"{val:,.0f}".replace(',', ' ')
+
 # --- 1. КОНФИГУРАЦИЯ И ЧИСТЫЙ СИСТЕМНЫЙ CSS ---
 st.set_page_config(page_title="Dwin Home | OS", page_icon="🐺", layout="wide", initial_sidebar_state="collapsed")
 
@@ -31,6 +45,9 @@ st.markdown("""
 
 st.title("🐺 DWINA: аналитика и прогноз")
 
+# ГЛОБАЛЬНЫЕ НАСТРОЙКИ ГРАФИКОВ (Отключение кнопок)
+PLOT_CONFIG = {'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False, 'doubleClick': False, 'showTips': False}
+
 # --- 2. ЗАГРУЗКА И ЖЕСТКАЯ ПРИВЯЗКА ФАЙЛОВ ---
 c1, c2 = st.columns(2)
 fbo_file = c1.file_uploader("📦 Загрузить ФБО (orders.csv)", type=["csv"])
@@ -43,19 +60,34 @@ def process_data(file, source):
         df = pd.read_csv(file, sep=None, engine='python')
         df.rename(columns=lambda x: str(x).strip('\ufeff"').strip(), inplace=True)
         
-        if 'Принят в обработку' in df.columns:
-            df['Time_Full'] = pd.to_datetime(df['Принят в обработку'], errors='coerce')
-            df['Дата'] = df['Time_Full'].dt.normalize()
-            df['Месяц'] = df['Time_Full'].dt.to_period('M').astype(str)
-            df['Час'] = df['Time_Full'].dt.hour
-            df['День_Недели'] = df['Time_Full'].dt.day_name()
+        # Ранний выход (Пункт 3)
+        req_cols = ['Принят в обработку', 'Номер заказа']
+        if not all(col in df.columns for col in req_cols):
+            st.error(f"В файле {source} отсутствуют обязательные колонки: {', '.join(req_cols)}")
+            return pd.DataFrame()
             
-        df['Выручка'] = pd.to_numeric(df.get('Сумма отправления', 0), errors='coerce').fillna(0)
-        df['Штуки'] = pd.to_numeric(df.get('Количество', 0), errors='coerce').fillna(0)
+        df['Time_Full'] = pd.to_datetime(df['Принят в обработку'], errors='coerce')
+        df.dropna(subset=['Time_Full'], inplace=True)
+        df['Дата'] = df['Time_Full'].dt.normalize()
+        df['Месяц'] = df['Time_Full'].dt.to_period('M').astype(str)
+        df['Час'] = df['Time_Full'].dt.hour
+        df['День_Недели'] = df['Time_Full'].dt.day_name()
+            
+        # Безопасный парсинг без скаляров (Пункт 2)
+        rev = df.get('Сумма отправления')
+        df['Выручка'] = pd.to_numeric(rev, errors='coerce').fillna(0) if rev is not None else 0.0
+        
+        qty = df.get('Количество')
+        df['Штуки'] = pd.to_numeric(qty, errors='coerce').fillna(0) if qty is not None else 0.0
+        
         df['Логистика'] = source
         
-        if 'Номер заказа' in df.columns:
-            df['Client_ID'] = df['Номер заказа'].astype(str).apply(lambda x: str(x).split('-')[0])
+        # Умный парсинг Client_ID (Пункт 7)
+        if source == "FBO (Склады)":
+            df['Client_ID'] = df['Номер заказа'].astype(str).apply(lambda x: x.split('-')[0])
+        else:
+            # Для FBS отрезаем только последний суффикс, сохраняя уникальность вида 98-XXXXX
+            df['Client_ID'] = df['Номер заказа'].astype(str).apply(lambda x: x.rsplit('-', 1)[0] if '-' in x else x)
             
         if 'Название товара' in df.columns:
             df['Тип_Чехла'] = df['Название товара'].apply(lambda x: str(x).split('для')[0].strip() if pd.notna(x) else 'Неизвестно')
@@ -74,6 +106,73 @@ if not df_fbo.empty or not df_fbs.empty:
     total_rev = df['Выручка'].sum()
     total_items = df['Штуки'].sum()
     total_orders = df['Номер заказа'].nunique()
+
+    # --- 2.5 СИНХРОНИЗИРОВАННЫЕ РАСЧЕТЫ (Единый источник истины) ---
+    max_date_full = df['Time_Full'].max()
+    curr_month_str = max_date_full.strftime('%Y-%m')
+    last_update_str = max_date_full.strftime('%d.%m.%Y в %H:%M')
+
+    unique_months = sorted(df['Месяц'].unique())
+    curr_month_df = df[df['Месяц'] == curr_month_str]
+    curr_rev = curr_month_df['Выручка'].sum()
+    curr_items = curr_month_df['Штуки'].sum()
+    prev_rev = df[df['Месяц'] == unique_months[-2]]['Выручка'].sum() if len(unique_months) > 1 else 0
+
+    # Прогноз: взвешиваем по среднему чеку последних 7 дней (Пункт 5)
+    last_7_days = max_date_full.normalize() - pd.Timedelta(days=7)
+    recent_7d_df = df[df['Time_Full'] >= last_7_days]
+    run_rate_rev = recent_7d_df['Выручка'].sum() / 7 if not recent_7d_df.empty else 0
+    run_rate_items = recent_7d_df['Штуки'].sum() / 7 if not recent_7d_df.empty else 0
+    
+    days_in_month = calendar.monthrange(max_date_full.year, max_date_full.month)[1]
+    remaining_days = days_in_month - max_date_full.day
+    forecast_rev = curr_rev + (run_rate_rev * remaining_days)
+    forecast_items = curr_items + (run_rate_items * remaining_days)
+
+    # Тексты (без бессмысленных долей, с безопасным форматированием через хелперы)
+    short_stats = (
+        f"📊 DWINA | Сводка\n"
+        f"Всего: {fmt_money(total_rev)} ({fmt_num(total_items)} шт.)\n"
+        f"За {curr_month_str}: {fmt_money(curr_rev)}\n"
+        f"План до конца месяца: ~{fmt_money(forecast_rev)}\n"
+        f"Прошлый месяц: {fmt_money(prev_rev)}\n"
+        f"Актуально на: {last_update_str}"
+    )
+
+    full_stats = (
+        f"🐺 DWINA | Полная аналитика\n"
+        f"Актуально на: {last_update_str}\n\n"
+        f"📦 ГЛОБАЛЬНО:\n"
+        f"• Выручка: {fmt_money(total_rev)}\n"
+        f"• Продано: {fmt_num(total_items)} шт.\n"
+        f"• Заказов: {fmt_num(total_orders)}\n\n"
+        f"🎯 ТЕКУЩИЙ МЕСЯЦ ({curr_month_str}):\n"
+        f"• Факт: {fmt_money(curr_rev)} ({fmt_num(curr_items)} шт.)\n"
+        f"• Прогноз: ~{fmt_money(forecast_rev)} (~{fmt_num(forecast_items)} шт.)\n\n"
+        f"🕒 ПРОШЛЫЙ МЕСЯЦ:\n"
+        f"• Факт: {fmt_money(prev_rev)}\n\n"
+        f"🌐 dwina.ru"
+    )
+
+    # Отрисовка шапки
+    head_c1, head_c2 = st.columns([8.5, 1.5], vertical_alignment="center")
+    with head_c1:
+        st.markdown(
+            f"<span style='font-size: 1.05rem; color: #374151;'>"
+            f"🟢 <b>Актуально на:</b> {last_update_str} &nbsp;|&nbsp; "
+            f"🎯 <b>План месяца:</b> <span style='color: #10B981;'>~{fmt_money(forecast_rev)}</span> &nbsp;|&nbsp; "
+            f"🕒 <b>Прошлый месяц:</b> {fmt_money(prev_rev)}"
+            f"</span>", 
+            unsafe_allow_html=True
+        )
+    with head_c2:
+        with st.popover("📋 Копировать", use_container_width=True):
+            st.caption("Кратко:")
+            st.code(short_stats, language="markdown")
+            st.caption("Полностью:")
+            st.code(full_stats, language="markdown")
+            
+    st.markdown("<hr style='margin: 1rem 0 2rem 0;'>", unsafe_allow_html=True)
     
     # --- 3. ГЛОБАЛЬНЫЕ KPI ---
     st.markdown(f"""
@@ -194,17 +293,18 @@ if not df_fbo.empty or not df_fbs.empty:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     fig_monthly.update_yaxes(showgrid=True, gridcolor='#E5E7EB', title="Выручка (₽)")
-    st.plotly_chart(fig_monthly, use_container_width=True, config={'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False, 'doubleClick': False, 'showTips': False})
+    st.plotly_chart(fig_monthly, use_container_width=True, config=PLOT_CONFIG)
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # --- 5. ДИНАМИКА ПРОДАЖ ПО ДНЯМ ---
-    st.markdown("### 📈 Динамика по дням")
+    # --- 5. ДИНАМИКА ПРОДАЖ ПО ДНЯМ (ФАКТ И ТРЕНД РАЗДЕЛЕНЫ) ---
+    st.markdown("### 📈 Динамика продаж по дням")
     
     if 'Дата' in df.columns:
         min_date, max_date_f = df['Дата'].min(), df['Дата'].max()
         all_dates = pd.date_range(min_date, max_date_f)
         
+        # 1. ФАКТИЧЕСКАЯ ВЫРУЧКА
         fbs_daily = df[df['Логистика']=="FBS (Дом)"].groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
         fbo_daily = df[df['Логистика']=="FBO (Склады)"].groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
         total_daily = df.groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
@@ -216,12 +316,30 @@ if not df_fbo.empty or not df_fbs.empty:
         
         fig_sales.update_layout(hovermode="x unified", plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'), margin=dict(t=10, b=10, l=0, r=0))
         fig_sales.update_xaxes(type='date', showgrid=True, gridcolor='#E5E7EB', tickformat="%d %b")
-        fig_sales.update_yaxes(showgrid=True, gridcolor='#E5E7EB', title="Выручка (₽)")
-        st.plotly_chart(fig_sales, use_container_width=True, config={'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False, 'doubleClick': False, 'showTips': False})
+        fig_sales.update_yaxes(showgrid=True, gridcolor='#E5E7EB', title="Реальная выручка (₽)")
+        st.plotly_chart(fig_sales, use_container_width=True, config=PLOT_CONFIG)
+        
+        # 2. ОРГАНИЧЕСКИЙ ТРЕНД (Очищено от оптовых аномалий)
+        st.markdown("#### 🌊 Органический тренд (Очищено от оптовых аномалий)")
+        st.write("Случайные оптовые заказы сведены к 1 средневзвешенному чеку. Показывает чистую скользящую среднюю (SMA-7) спроса.")
+        
+        # Корректный расчет средневзвешенной цены за визит
+        daily_visits = df.groupby(['Дата', 'Client_ID']).agg({'Выручка': 'sum', 'Штуки': 'sum'}).reset_index()
+        daily_visits['Цена_1_шт'] = np.where(daily_visits['Штуки'] > 0, daily_visits['Выручка'] / daily_visits['Штуки'], 0)
+        
+        total_organic_daily = daily_visits.groupby('Дата')['Цена_1_шт'].sum().reindex(all_dates, fill_value=0)
+        trend_7d = total_organic_daily.rolling(window=7, min_periods=1).mean()
+        
+        fig_trend = go.Figure()
+        fig_trend.add_trace(go.Scatter(x=all_dates, y=trend_7d, name='SMA-7 (Органический тренд)', mode='lines', fill='tozeroy', line=dict(color='#8B5CF6', width=3), fillcolor='rgba(139, 92, 246, 0.2)'))
+        fig_trend.update_layout(hovermode="x unified", plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'), margin=dict(t=10, b=10, l=0, r=0), height=300)
+        fig_trend.update_xaxes(type='date', showgrid=True, gridcolor='#E5E7EB', tickformat="%d %b")
+        fig_trend.update_yaxes(showgrid=True, gridcolor='#E5E7EB', title="Усредненная выручка (₽)")
+        st.plotly_chart(fig_trend, use_container_width=True, config=PLOT_CONFIG)
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # --- 6. АНАЛИТИКА АУДИТОРИИ ---
+    # --- 6. АНАЛИТИКА АУДИТОРИИ (ПРОЦЕНТЫ И УНИКАЛЬНЫЕ ВИЗИТЫ) ---
     st.markdown("### 🔥 Прайм-тайм и Дни недели")
     col_aud1, col_aud2 = st.columns(2)
     with col_aud1:
@@ -235,24 +353,29 @@ if not df_fbo.empty or not df_fbs.empty:
         tod_stats = df.groupby('Время_Суток')['Client_ID'].nunique().reset_index()
         fig_pie = px.pie(tod_stats, values='Client_ID', names='Время_Суток', hole=0.5, title="По времени суток", color_discrete_sequence=px.colors.sequential.Teal)
         fig_pie.update_layout(plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'))
-        st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False, 'doubleClick': False, 'showTips': False})
+        st.plotly_chart(fig_pie, use_container_width=True, config=PLOT_CONFIG)
         
     with col_aud2:
         dow_map = {'Monday': 'ПН', 'Tuesday': 'ВТ', 'Wednesday': 'СР', 'Thursday': 'ЧТ', 'Friday': 'ПТ', 'Saturday': 'СБ', 'Sunday': 'ВС'}
         df['Day_RU'] = df['День_Недели'].map(dow_map)
         dow_order = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС']
         dow_stats = df.groupby('Day_RU')['Client_ID'].nunique().reindex(dow_order).reset_index()
-        fig_dow = px.bar(dow_stats, x='Day_RU', y='Client_ID', title="По дням недели")
+        
+        # Перевод в проценты
+        total_visits = dow_stats['Client_ID'].sum()
+        dow_stats['Percent'] = (dow_stats['Client_ID'] / total_visits) * 100
+        
+        fig_dow = px.bar(dow_stats, x='Day_RU', y='Percent', title="По дням недели (%)", text=dow_stats['Percent'].apply(lambda x: f"{x:.1f}%"))
         fig_dow.update_layout(plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'))
-        fig_dow.update_traces(marker_color='#10B981')
-        st.plotly_chart(fig_dow, use_container_width=True, config={'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False, 'doubleClick': False, 'showTips': False})
+        fig_dow.update_traces(marker_color='#10B981', textposition='outside')
+        fig_dow.update_yaxes(title="Доля от всех визитов (%)", showgrid=True, gridcolor='#E5E7EB')
+        st.plotly_chart(fig_dow, use_container_width=True, config=PLOT_CONFIG)
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
     # --- 7. ТОВАРНАЯ МАТРИЦА (ОБЪЕДИНЕНИЕ ПО АРТИКУЛУ/SKU) ---
     st.markdown("### 📦 Аналитика по товарам")
     
-    # Определяем колонку для группировки (Артикул или SKU), чтобы смена названия не создавала новые строки
     group_col = 'Артикул' if 'Артикул' in df.columns else ('SKU' if 'SKU' in df.columns else 'Тип_Чехла')
     
     if group_col in df.columns:
@@ -262,7 +385,6 @@ if not df_fbo.empty or not df_fbs.empty:
             Название=('Название товара', lambda x: x.mode()[0] if not x.empty and 'Название товара' in df.columns else (x.iloc[0] if not x.empty else 'Неизвестно'))
         ).reset_index().sort_values('Выручка', ascending=False)
         
-        # Приводим название к красивому виду (берем часть до слова "для" или используем полное, если удобнее)
         prod_stats['Модель / Цвет'] = prod_stats['Название'].apply(lambda x: str(x).split('для')[0].strip() if pd.notna(x) else 'Неизвестно')
         prod_stats['Ср_Цена'] = (prod_stats['Выручка'] / prod_stats['Штук'].replace(0, 1)).round(0)
         prod_stats['Доля_%'] = (prod_stats['Выручка'] / total_rev * 100).round(1)
@@ -277,6 +399,57 @@ if not df_fbo.empty or not df_fbs.empty:
                 "Доля_%": st.column_config.NumberColumn("Доля в обороте", format="%.1f %%")
             }, hide_index=True, use_container_width=True
         )
+
+        # --- 7.1 БЛОК УПРАВЛЕНИЯ ЗАПАСАМИ И ДЕФИЦИТОМ (ОДНА ТАБЛИЦА) ---
+        st.markdown("#### 🏭 План производства и Дефицит складов")
+        st.write("Введите в колонку **«Сейчас на складе ✍️»** ваши реальные остатки. "
+                 "Дефицит и статус пересчитаются автоматически на основе прогноза спроса на 30 дней.")
+
+        days_in_data = (df['Дата'].max() - df['Дата'].min()).days + 1
+        if days_in_data < 1:
+            days_in_data = 1
+
+        # Хранилище введённых остатков
+        if 'stock_values' not in st.session_state:
+            st.session_state.stock_values = {}
+
+        # Базовая таблица
+        deficit_df = prod_stats[['Модель / Цвет', 'Штук']].copy()
+        deficit_df['Прогноз (30 дн)'] = np.ceil((deficit_df['Штук'] / days_in_data) * 30).astype(int)
+        deficit_df['Сейчас на складе ✍️'] = (
+            deficit_df['Модель / Цвет']
+            .map(st.session_state.stock_values)
+            .fillna(0)
+            .astype(int)
+        )
+        deficit_df['Дефицит'] = deficit_df['Прогноз (30 дн)'] - deficit_df['Сейчас на складе ✍️']
+        deficit_df['Статус Производства'] = deficit_df['Дефицит'].apply(
+            lambda x: f"🛑 Напечатать {int(x)} шт." if x > 0 else "✅ Хватает"
+        )
+
+        # Единая таблица-редактор
+        edited_deficit = st.data_editor(
+            deficit_df[['Модель / Цвет', 'Прогноз (30 дн)', 'Сейчас на складе ✍️', 'Дефицит', 'Статус Производства']],
+            column_config={
+                "Модель / Цвет": st.column_config.TextColumn("Товар", disabled=True, width="medium"),
+                "Прогноз (30 дн)": st.column_config.NumberColumn("Спрос на 30 дней", disabled=True, format="%d шт."),
+                "Сейчас на складе ✍️": st.column_config.NumberColumn(
+                    "Сейчас на складе ✍️", min_value=0, step=1, format="%d шт."
+                ),
+                "Дефицит": st.column_config.NumberColumn("Дефицит", disabled=True, format="%d шт."),
+                "Статус Производства": st.column_config.TextColumn("Статус производства", disabled=True, width="medium"),
+            },
+            hide_index=True,
+            use_container_width=True,
+            key="stock_editor",
+        )
+
+        # Если пользователь поменял остатки — сохраняем и перерисовываем,
+        # чтобы «Дефицит» и «Статус» пересчитались сразу же
+        new_stocks = dict(zip(edited_deficit['Модель / Цвет'], edited_deficit['Сейчас на складе ✍️']))
+        if new_stocks != st.session_state.stock_values:
+            st.session_state.stock_values = new_stocks
+            st.rerun()
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -386,7 +559,26 @@ if not df_fbo.empty or not df_fbs.empty:
         })
 
     df_table = pd.DataFrame(table_data)
-    df_table['Чистая Прибыль (₽)'] = df_table['Выручка (₽)'] - (df_table['Штук'] * cogs) - (df_table['Выручка (₽)'] * (ozon_fee/100))
+    
+    # Считаем сырую прибыль
+    df_table['Чистая Прибыль (сырая)'] = df_table['Выручка (₽)'] - (df_table['Штук'] * cogs) - (df_table['Выручка (₽)'] * (ozon_fee/100))
+    
+    # Считаем процентную динамику (month-over-month)
+    df_table['Динамика'] = df_table['Чистая Прибыль (сырая)'].pct_change() * 100
+
+    # Склеиваем сумму и процент в красивую строку
+    def format_profit(row):
+        val = row['Чистая Прибыль (сырая)']
+        diff = row['Динамика']
+        val_str = fmt_money(val)
+        
+        if pd.isna(diff) or np.isinf(diff):
+            return val_str
+            
+        sign = "+" if diff > 0 else ""
+        return f"{val_str} ({sign}{diff:.1f}%)"
+        
+    df_table['Чистая Прибыль'] = df_table.apply(format_profit, axis=1)
 
     st.dataframe(
         df_table,
@@ -397,8 +589,9 @@ if not df_fbo.empty or not df_fbs.empty:
             "Штук": st.column_config.NumberColumn("Спрос (Штук)", format="%d"),
             "ФБС (₽)": st.column_config.NumberColumn("ФБС", format="%d ₽"),
             "ФБО (₽)": st.column_config.NumberColumn("ФБО", format="%d ₽"),
-            "Чистая Прибыль (₽)": st.column_config.NumberColumn("Чистая Прибыль", format="%d ₽")
+            "Чистая Прибыль": st.column_config.TextColumn("Чистая Прибыль")
         },
+        column_order=["Месяц", "Статус", "Выручка (₽)", "Штук", "ФБС (₽)", "ФБО (₽)", "Чистая Прибыль"],
         hide_index=True, use_container_width=True, height='content'
     )
 
