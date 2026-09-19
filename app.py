@@ -97,8 +97,8 @@ def process_data(file, source):
         st.error(f"Ошибка парсинга {source}: {e}")
         return pd.DataFrame()
 
-df_fbo = process_data(fbo_file, "FBO (Склады)")
-df_fbs = process_data(fbs_file, "FBS (Дом)")
+df_fbo = process_data(fbo_file, "FBO")
+df_fbs = process_data(fbs_file, "FBS")
 
 if not df_fbo.empty or not df_fbs.empty:
     df = pd.concat([df_fbo, df_fbs], ignore_index=True)
@@ -228,10 +228,10 @@ if not df_fbo.empty or not df_fbs.empty:
         
         m_rev = m_df['Выручка'].sum()
         m_items = m_df['Штуки'].sum()
-        m_fbo_rev = m_df[m_df['Логистика'] == 'FBO (Склады)']['Выручка'].sum()
-        m_fbo_items = m_df[m_df['Логистика'] == 'FBO (Склады)']['Штуки'].sum()
-        m_fbs_rev = m_df[m_df['Логистика'] == 'FBS (Дом)']['Выручка'].sum()
-        m_fbs_items = m_df[m_df['Логистика'] == 'FBS (Дом)']['Штуки'].sum()
+        m_fbo_rev = m_df[m_df['Логистика'] == 'FBO']['Выручка'].sum()
+        m_fbo_items = m_df[m_df['Логистика'] == 'FBO']['Штуки'].sum()
+        m_fbs_rev = m_df[m_df['Логистика'] == 'FBS']['Выручка'].sum()
+        m_fbs_items = m_df[m_df['Логистика'] == 'FBS']['Штуки'].sum()
         
         prev_m_str = unique_months[i-1] if i > 0 else None
         prev_name_dat = ru_months_dat[int(prev_m_str.split('-')[1])] if prev_m_str else "прошлому месяцу"
@@ -264,8 +264,8 @@ if not df_fbo.empty or not df_fbs.empty:
                 df_prev = df[df['Месяц'] == prev_m_str]
                 p_rev = df_prev['Выручка'].sum()
                 p_items = df_prev['Штуки'].sum()
-                p_fbs_rev = df_prev[df_prev['Логистика'] == 'FBS (Дом)']['Выручка'].sum()
-                p_fbo_rev = df_prev[df_prev['Логистика'] == 'FBO (Склады)']['Выручка'].sum()
+                p_fbs_rev = df_prev[df_prev['Логистика'] == 'FBS']['Выручка'].sum()
+                p_fbo_rev = df_prev[df_prev['Логистика'] == 'FBO']['Выручка'].sum()
             else:
                 p_rev = p_items = p_fbs_rev = p_fbo_rev = 0
                 
@@ -282,8 +282,8 @@ if not df_fbo.empty or not df_fbs.empty:
     df_monthly_viz = pd.DataFrame(monthly_data)
     
     fig_monthly = go.Figure()
-    fig_monthly.add_trace(go.Bar(x=df_monthly_viz['Месяц'], y=df_monthly_viz['ФБС_Выручка'], name='ФБС (Дом)', marker_color='#FF5C00', customdata=df_monthly_viz['Hover'], hovertemplate="%{customdata}<extra></extra>"))
-    fig_monthly.add_trace(go.Bar(x=df_monthly_viz['Месяц'], y=df_monthly_viz['ФБО_Выручка'], name='ФБО (Склады)', marker_color='#005BFF', customdata=df_monthly_viz['Hover'], hovertemplate="%{customdata}<extra></extra>"))
+    fig_monthly.add_trace(go.Bar(x=df_monthly_viz['Месяц'], y=df_monthly_viz['ФБС_Выручка'], name='ФБС', marker_color='#FF5C00', customdata=df_monthly_viz['Hover'], hovertemplate="%{customdata}<extra></extra>"))
+    fig_monthly.add_trace(go.Bar(x=df_monthly_viz['Месяц'], y=df_monthly_viz['ФБО_Выручка'], name='ФБО', marker_color='#005BFF', customdata=df_monthly_viz['Hover'], hovertemplate="%{customdata}<extra></extra>"))
     
     fig_monthly.update_layout(
         barmode='stack', hovermode='closest', 
@@ -580,7 +580,7 @@ if not df_fbo.empty or not df_fbs.empty:
         
     df_table['Чистая Прибыль'] = df_table.apply(format_profit, axis=1)
 
-    st.dataframe(
+    st.table(
         df_table,
         column_config={
             "Месяц": st.column_config.TextColumn("Месяц"),
@@ -592,7 +592,7 @@ if not df_fbo.empty or not df_fbs.empty:
             "Чистая Прибыль": st.column_config.TextColumn("Чистая Прибыль")
         },
         column_order=["Месяц", "Статус", "Выручка (₽)", "Штук", "ФБС (₽)", "ФБО (₽)", "Чистая Прибыль"],
-        hide_index=True, use_container_width=True, height='content'
+        hide_index=True, use_container_width=True
     )
 
 else:
