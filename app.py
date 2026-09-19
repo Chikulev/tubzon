@@ -592,7 +592,7 @@ if not df_fbo.empty or not df_fbs.empty:
             "Чистая Прибыль": st.column_config.TextColumn("Чистая Прибыль")
         },
         column_order=["Месяц", "Статус", "Выручка (₽)", "Штук", "ФБС (₽)", "ФБО (₽)", "Чистая Прибыль"],
-        hide_index=True, use_container_width=True, height=900
+        hide_index=True, use_container_width=True, height=600
     )
 
 else:
