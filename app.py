@@ -101,8 +101,19 @@ df_fbo = process_data(fbo_file, "FBO")
 df_fbs = process_data(fbs_file, "FBS")
 
 if not df_fbo.empty or not df_fbs.empty:
-    df = pd.concat([df_fbo, df_fbs], ignore_index=True)
+    # 1. Сохраняем полный датафрейм (с отменами) для отдельного графика
+    df_full = pd.concat([df_fbo, df_fbs], ignore_index=True)
     
+    # 2. Считаем глобальные отмены (сумма и количество) для красной карточки KPI
+    total_cancelled_rev = df_full[df_full.get('Статус') == 'Отменён']['Выручка'].sum() if 'Статус' in df_full.columns else 0
+    total_cancelled_orders = df_full[df_full.get('Статус') == 'Отменён']['Номер заказа'].nunique() if 'Статус' in df_full.columns else 0
+
+    # 3. Очищаем основной df от отмененных заказов. Теперь все графики и таблицы будут считать чистую выручку
+    if 'Статус' in df_full.columns:
+        df = df_full[df_full['Статус'] != 'Отменён']
+    else:
+        df = df_full
+        
     total_rev = df['Выручка'].sum()
     total_items = df['Штуки'].sum()
     total_orders = df['Номер заказа'].nunique()
@@ -118,7 +129,7 @@ if not df_fbo.empty or not df_fbs.empty:
     curr_items = curr_month_df['Штуки'].sum()
     prev_rev = df[df['Месяц'] == unique_months[-2]]['Выручка'].sum() if len(unique_months) > 1 else 0
 
-    # Прогноз: взвешиваем по среднему чеку последних 7 дней (Пункт 5)
+    # Прогноз: взвешиваем по среднему чеку последних 7 дней
     last_7_days = max_date_full.normalize() - pd.Timedelta(days=7)
     recent_7d_df = df[df['Time_Full'] >= last_7_days]
     run_rate_rev = recent_7d_df['Выручка'].sum() / 7 if not recent_7d_df.empty else 0
@@ -128,6 +139,9 @@ if not df_fbo.empty or not df_fbs.empty:
     remaining_days = days_in_month - max_date_full.day
     forecast_rev = curr_rev + (run_rate_rev * remaining_days)
     forecast_items = curr_items + (run_rate_items * remaining_days)
+    
+    # Процент выполнения плана
+    plan_completion = (curr_rev / forecast_rev * 100) if forecast_rev > 0 else 0
 
     # Тексты (без бессмысленных долей, с безопасным форматированием через хелперы)
     short_stats = (
@@ -145,7 +159,8 @@ if not df_fbo.empty or not df_fbs.empty:
         f"📦 ГЛОБАЛЬНО:\n"
         f"• Выручка: {fmt_money(total_rev)}\n"
         f"• Продано: {fmt_num(total_items)} шт.\n"
-        f"• Заказов: {fmt_num(total_orders)}\n\n"
+        f"• Заказов: {fmt_num(total_orders)}\n"
+        f"• Отменено: {fmt_money(total_cancelled_rev)} ({fmt_num(total_cancelled_orders)} шт.)\n\n"
         f"🎯 ТЕКУЩИЙ МЕСЯЦ ({curr_month_str}):\n"
         f"• Факт: {fmt_money(curr_rev)} ({fmt_num(curr_items)} шт.)\n"
         f"• Прогноз: ~{fmt_money(forecast_rev)} (~{fmt_num(forecast_items)} шт.)\n\n"
@@ -154,13 +169,14 @@ if not df_fbo.empty or not df_fbs.empty:
         f"🌐 dwina.ru"
     )
 
-    # Отрисовка шапки
+    # Отрисовка шапки с обновленными данными
     head_c1, head_c2 = st.columns([8.5, 1.5], vertical_alignment="center")
     with head_c1:
         st.markdown(
             f"<span style='font-size: 1.05rem; color: #374151;'>"
             f"🟢 <b>Актуально на:</b> {last_update_str} &nbsp;|&nbsp; "
-            f"🎯 <b>План месяца:</b> <span style='color: #10B981;'>~{fmt_money(forecast_rev)}</span> &nbsp;|&nbsp; "
+            f"🔥 <b>Факт месяца:</b> {fmt_money(curr_rev)} &nbsp;|&nbsp; "
+            f"🎯 <b>План месяца:</b> <span style='color: #10B981;'>~{fmt_money(forecast_rev)} (выполнен на {plan_completion:.1f}%)</span> &nbsp;|&nbsp; "
             f"🕒 <b>Прошлый месяц:</b> {fmt_money(prev_rev)}"
             f"</span>", 
             unsafe_allow_html=True
@@ -177,21 +193,25 @@ if not df_fbo.empty or not df_fbs.empty:
     # --- 3. ГЛОБАЛЬНЫЕ KPI ---
     st.markdown(f"""
         <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-            <div class="kpi-card" style="flex: 1; min-width: 200px;">
+            <div class="kpi-card" style="flex: 1; min-width: 150px;">
                 <div class="kpi-title">Общая выручка</div>
                 <div class="kpi-value">{total_rev:,.0f} ₽</div>
             </div>
-            <div class="kpi-card" style="flex: 1; min-width: 200px; border-left-color: #005BFF;">
+            <div class="kpi-card" style="flex: 1; min-width: 150px; border-left-color: #005BFF;">
                 <div class="kpi-title">Всего заказов</div>
                 <div class="kpi-value">{total_orders:,.0f}</div>
             </div>
-            <div class="kpi-card" style="flex: 1; min-width: 200px; border-left-color: #10B981;">
+            <div class="kpi-card" style="flex: 1; min-width: 150px; border-left-color: #10B981;">
                 <div class="kpi-title">Продано штук</div>
                 <div class="kpi-value">{total_items:,.0f}</div>
             </div>
-            <div class="kpi-card" style="flex: 1; min-width: 200px; border-left-color: #8B5CF6;">
+            <div class="kpi-card" style="flex: 1; min-width: 150px; border-left-color: #8B5CF6;">
                 <div class="kpi-title">Средний чек</div>
                 <div class="kpi-value">{total_rev/total_orders if total_orders else 0:,.0f} ₽</div>
+            </div>
+            <div class="kpi-card" style="flex: 1; min-width: 150px; border-left-color: #EF4444;">
+                <div class="kpi-title">Отмены (упущенная)</div>
+                <div class="kpi-value">{total_cancelled_rev:,.0f} ₽</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -309,8 +329,8 @@ if not df_fbo.empty or not df_fbs.empty:
         fbo_daily = df[df['Логистика']=="FBO"].groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
         total_daily = df.groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
         
-        # Считаем упущенную выручку отмененных заказов с привязкой к дате их оформления
-        cancelled_daily = df[df.get('Статус') == 'Отменён'].groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
+        # Считаем упущенную выручку отмененных заказов из ПОЛНОГО датафрейма (df_full)
+        cancelled_daily = df_full[df_full.get('Статус') == 'Отменён'].groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0) if 'df_full' in locals() else pd.Series(0, index=all_dates)
         
         fig_sales = go.Figure()
         fig_sales.add_trace(go.Scatter(x=all_dates, y=fbs_daily, name='FBS (Факт)', mode='lines', line=dict(color='#FF5C00', width=2)))
@@ -598,7 +618,7 @@ if not df_fbo.empty or not df_fbs.empty:
             "Чистая Прибыль": st.column_config.TextColumn("Чистая Прибыль и динамика")
         },
         column_order=["Месяц", "Статус", "Выручка (₽)", "Штук", "FBS (₽)", "FBO (₽)", "Чистая Прибыль"],
-        hide_index=True, use_container_width=True, height=500
+        hide_index=True, use_container_width=True, height=600
     )
 
 else:
