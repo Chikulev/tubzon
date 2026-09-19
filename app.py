@@ -83,7 +83,7 @@ def process_data(file, source):
         df['Логистика'] = source
         
         # Умный парсинг Client_ID (Пункт 7)
-        if source == "FBO (Склады)":
+        if source == "FBO":
             df['Client_ID'] = df['Номер заказа'].astype(str).apply(lambda x: x.split('-')[0])
         else:
             # Для FBS отрезаем только последний суффикс, сохраняя уникальность вида 98-XXXXX
@@ -241,8 +241,8 @@ if not df_fbo.empty or not df_fbs.empty:
                 df_prev_same = df[(df['Месяц'] == prev_m_str) & (df['Time_Full'].dt.day <= elapsed_days)]
                 p_rev = df_prev_same['Выручка'].sum()
                 p_items = df_prev_same['Штуки'].sum()
-                p_fbs_rev = df_prev_same[df_prev_same['Логистика'] == 'FBS (Дом)']['Выручка'].sum()
-                p_fbo_rev = df_prev_same[df_prev_same['Логистика'] == 'FBO (Склады)']['Выручка'].sum()
+                p_fbs_rev = df_prev_same[df_prev_same['Логистика'] == 'FBS']['Выручка'].sum()
+                p_fbo_rev = df_prev_same[df_prev_same['Логистика'] == 'FBO']['Выручка'].sum()
             else:
                 p_rev = p_items = p_fbs_rev = p_fbo_rev = 0
             
@@ -304,15 +304,21 @@ if not df_fbo.empty or not df_fbs.empty:
         min_date, max_date_f = df['Дата'].min(), df['Дата'].max()
         all_dates = pd.date_range(min_date, max_date_f)
         
-        # 1. ФАКТИЧЕСКАЯ ВЫРУЧКА
-        fbs_daily = df[df['Логистика']=="FBS (Дом)"].groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
-        fbo_daily = df[df['Логистика']=="FBO (Склады)"].groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
+        # 1. ФАКТИЧЕСКАЯ ВЫРУЧКА И ОТМЕНЫ
+        fbs_daily = df[df['Логистика']=="FBS"].groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
+        fbo_daily = df[df['Логистика']=="FBO"].groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
         total_daily = df.groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
+        
+        # Считаем упущенную выручку отмененных заказов с привязкой к дате их оформления
+        cancelled_daily = df[df.get('Статус') == 'Отменён'].groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
         
         fig_sales = go.Figure()
         fig_sales.add_trace(go.Scatter(x=all_dates, y=fbs_daily, name='FBS (Факт)', mode='lines', line=dict(color='#FF5C00', width=2)))
         fig_sales.add_trace(go.Scatter(x=all_dates, y=fbo_daily, name='FBO (Факт)', mode='lines', line=dict(color='#005BFF', width=2)))
         fig_sales.add_trace(go.Scatter(x=all_dates, y=total_daily, name='СУММА', mode='lines', line=dict(color='#10B981', width=3, dash='dot')))
+        
+        # Добавляем суммарную серую линию отмен
+        fig_sales.add_trace(go.Scatter(x=all_dates, y=cancelled_daily, name='Отмены (₽)', mode='lines', line=dict(color='#9CA3AF', width=1)))
         
         fig_sales.update_layout(hovermode="x unified", plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'), margin=dict(t=10, b=10, l=0, r=0))
         fig_sales.update_xaxes(type='date', showgrid=True, gridcolor='#E5E7EB', tickformat="%d %b")
@@ -479,8 +485,8 @@ if not df_fbo.empty or not df_fbs.empty:
     ozon_fee = col_eco2.slider("Доля маркетплейса (%)", 10.0, 90.0, 75.0)
     
     monthly_summary = df.groupby('Месяц').agg({'Выручка': 'sum', 'Штуки': 'sum'}).reset_index()
-    fbo_agg = df[df['Логистика'] == 'FBO (Склады)'].groupby('Месяц')['Выручка'].sum().to_dict()
-    fbs_agg = df[df['Логистика'] == 'FBS (Дом)'].groupby('Месяц')['Выручка'].sum().to_dict()
+    fbo_agg = df[df['Логистика'] == 'FBO'].groupby('Месяц')['Выручка'].sum().to_dict()
+    fbs_agg = df[df['Логистика'] == 'FBS'].groupby('Месяц')['Выручка'].sum().to_dict()
     
     table_data = []
     
