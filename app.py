@@ -50,8 +50,8 @@ PLOT_CONFIG = {'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False
 
 # --- 2. ЗАГРУЗКА И ЖЕСТКАЯ ПРИВЯЗКА ФАЙЛОВ ---
 c1, c2 = st.columns(2)
-fbo_file = c1.file_uploader("📦 Загрузить ФБО (orders.csv)", type=["csv"])
-fbs_file = c2.file_uploader("🏠 Загрузить ФБС (postings.csv)", type=["csv"])
+fbo_file = c1.file_uploader("📦 Загрузить FBO (orders.csv)", type=["csv"])
+fbs_file = c2.file_uploader("🏠 Загрузить FBS (postings.csv)", type=["csv"])
 
 @st.cache_data
 def process_data(file, source):
@@ -254,8 +254,8 @@ if not df_fbo.empty or not df_fbs.empty:
                 f"<b style='font-size: 14px;'>{m_name.upper()} (Аналитика за первые {elapsed_days} дн.)</b><br><br>"
                 f"Всего сейчас: <b>{m_rev:,.0f} ₽</b> {format_diff(m_rev, p_rev, True)} к {prev_name_dat}<br>"
                 f"Всего сейчас: <b>{m_items:.0f} шт.</b> {format_diff(m_items, p_items, False)} к {prev_name_dat}<br><br>"
-                f"ФБС сейчас: {m_fbs_items:.0f} шт., <b>{m_fbs_rev:,.0f} ₽</b> {format_diff(m_fbs_rev, p_fbs_rev, True)}<br>"
-                f"ФБО сейчас: {m_fbo_items:.0f} шт., <b>{m_fbo_rev:,.0f} ₽</b> {format_diff(m_fbo_rev, p_fbo_rev, True)}<br><br>"
+                f"FBS сейчас: {m_fbs_items:.0f} шт., <b>{m_fbs_rev:,.0f} ₽</b> {format_diff(m_fbs_rev, p_fbs_rev, True)}<br>"
+                f"FBO сейчас: {m_fbo_items:.0f} шт., <b>{m_fbo_rev:,.0f} ₽</b> {format_diff(m_fbo_rev, p_fbo_rev, True)}<br><br>"
                 f"<b>ПРОГНОЗ за ВЕСЬ {m_name.upper()} (прошло {elapsed_days} дн., осталось {days_in_curr_month - elapsed_days}):</b><br>"
                 f"Ожидаем всего: ~{proj_rev:,.0f} ₽ | ~{proj_items:.0f} шт."
             )
@@ -273,17 +273,17 @@ if not df_fbo.empty or not df_fbs.empty:
                 f"<b style='font-size: 14px;'>{m_name.upper()} (Итоги месяца)</b><br><br>"
                 f"Всего: <b>{m_rev:,.0f} ₽</b> {format_diff(m_rev, p_rev, True)} к {prev_name_dat}<br>"
                 f"Всего: <b>{m_items:.0f} шт.</b> {format_diff(m_items, p_items, False)} к {prev_name_dat}<br><br>"
-                f"ФБС: {m_fbs_items:.0f} шт., <b>{m_fbs_rev:,.0f} ₽</b> {format_diff(m_fbs_rev, p_fbs_rev, True)}<br>"
-                f"ФБО: {m_fbo_items:.0f} шт., <b>{m_fbo_rev:,.0f} ₽</b> {format_diff(m_fbo_rev, p_fbo_rev, True)}"
+                f"FBS: {m_fbs_items:.0f} шт., <b>{m_fbs_rev:,.0f} ₽</b> {format_diff(m_fbs_rev, p_fbs_rev, True)}<br>"
+                f"FBO: {m_fbo_items:.0f} шт., <b>{m_fbo_rev:,.0f} ₽</b> {format_diff(m_fbo_rev, p_fbo_rev, True)}"
             )
             
-        monthly_data.append({'Месяц': m_name, 'ФБС_Выручка': m_fbs_rev, 'ФБО_Выручка': m_fbo_rev, 'Hover': hover_text})
+        monthly_data.append({'Месяц': m_name, 'FBS_Выручка': m_fbs_rev, 'FBO_Выручка': m_fbo_rev, 'Hover': hover_text})
         
     df_monthly_viz = pd.DataFrame(monthly_data)
     
     fig_monthly = go.Figure()
-    fig_monthly.add_trace(go.Bar(x=df_monthly_viz['Месяц'], y=df_monthly_viz['ФБС_Выручка'], name='ФБС', marker_color='#FF5C00', customdata=df_monthly_viz['Hover'], hovertemplate="%{customdata}<extra></extra>"))
-    fig_monthly.add_trace(go.Bar(x=df_monthly_viz['Месяц'], y=df_monthly_viz['ФБО_Выручка'], name='ФБО', marker_color='#005BFF', customdata=df_monthly_viz['Hover'], hovertemplate="%{customdata}<extra></extra>"))
+    fig_monthly.add_trace(go.Bar(x=df_monthly_viz['Месяц'], y=df_monthly_viz['FBS_Выручка'], name='FBS', marker_color='#FF5C00', customdata=df_monthly_viz['Hover'], hovertemplate="%{customdata}<extra></extra>"))
+    fig_monthly.add_trace(go.Bar(x=df_monthly_viz['Месяц'], y=df_monthly_viz['FBO_Выручка'], name='FBO', marker_color='#005BFF', customdata=df_monthly_viz['Hover'], hovertemplate="%{customdata}<extra></extra>"))
     
     fig_monthly.update_layout(
         barmode='stack', hovermode='closest', 
@@ -310,8 +310,8 @@ if not df_fbo.empty or not df_fbs.empty:
         total_daily = df.groupby('Дата')['Выручка'].sum().reindex(all_dates, fill_value=0)
         
         fig_sales = go.Figure()
-        fig_sales.add_trace(go.Scatter(x=all_dates, y=fbs_daily, name='ФБС (Факт)', mode='lines', line=dict(color='#FF5C00', width=2)))
-        fig_sales.add_trace(go.Scatter(x=all_dates, y=fbo_daily, name='ФБО (Факт)', mode='lines', line=dict(color='#005BFF', width=2)))
+        fig_sales.add_trace(go.Scatter(x=all_dates, y=fbs_daily, name='FBS (Факт)', mode='lines', line=dict(color='#FF5C00', width=2)))
+        fig_sales.add_trace(go.Scatter(x=all_dates, y=fbo_daily, name='FBO (Факт)', mode='lines', line=dict(color='#005BFF', width=2)))
         fig_sales.add_trace(go.Scatter(x=all_dates, y=total_daily, name='СУММА', mode='lines', line=dict(color='#10B981', width=3, dash='dot')))
         
         fig_sales.update_layout(hovermode="x unified", plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'), margin=dict(t=10, b=10, l=0, r=0))
@@ -476,7 +476,7 @@ if not df_fbo.empty or not df_fbs.empty:
     
     col_eco1, col_eco2 = st.columns(2)
     cogs = col_eco1.number_input("Себестоимость 1 шт. (₽)", value=4.0, step=0.5)
-    ozon_fee = col_eco2.slider("Доля маркетплейса (%)", 10.0, 90.0, 50.0)
+    ozon_fee = col_eco2.slider("Доля маркетплейса (%)", 10.0, 90.0, 75.0)
     
     monthly_summary = df.groupby('Месяц').agg({'Выручка': 'sum', 'Штуки': 'sum'}).reset_index()
     fbo_agg = df[df['Логистика'] == 'FBO (Склады)'].groupby('Месяц')['Выручка'].sum().to_dict()
@@ -497,8 +497,8 @@ if not df_fbo.empty or not df_fbs.empty:
             "Статус": "Архив (Факт)",
             "Выручка (₽)": rev,
             "Штук": items,
-            "ФБС (₽)": fbs_agg.get(m_str, 0),
-            "ФБО (₽)": fbo_agg.get(m_str, 0)
+            "FBS (₽)": fbs_agg.get(m_str, 0),
+            "FBO (₽)": fbo_agg.get(m_str, 0)
         })
 
     # ТЕКУЩИЙ МЕСЯЦ
@@ -518,8 +518,8 @@ if not df_fbo.empty or not df_fbs.empty:
         "Статус": "Текущий (Проекция)",
         "Выручка (₽)": proj_rev,
         "Штук": proj_items,
-        "ФБС (₽)": proj_rev * fbs_ratio,
-        "ФБО (₽)": proj_rev * fbo_ratio
+        "FBS (₽)": proj_rev * fbs_ratio,
+        "FBO (₽)": proj_rev * fbo_ratio
     })
 
     # БУДУЩИЕ МЕСЯЦЫ (AI-ПРОГНОЗ)
@@ -554,8 +554,8 @@ if not df_fbo.empty or not df_fbs.empty:
             "Статус": "Прогноз",
             "Выручка (₽)": run_rev,
             "Штук": run_items,
-            "ФБС (₽)": run_rev * fbs_ratio,
-            "ФБО (₽)": run_rev * fbo_ratio
+            "FBS (₽)": run_rev * fbs_ratio,
+            "FBO (₽)": run_rev * fbo_ratio
         })
 
     df_table = pd.DataFrame(table_data)
@@ -587,12 +587,12 @@ if not df_fbo.empty or not df_fbs.empty:
             "Статус": st.column_config.TextColumn("Статус"),
             "Выручка (₽)": st.column_config.NumberColumn("Выручка (₽)", format="%d ₽"),
             "Штук": st.column_config.NumberColumn("Спрос (Штук)", format="%d"),
-            "ФБС (₽)": st.column_config.NumberColumn("ФБС", format="%d ₽"),
-            "ФБО (₽)": st.column_config.NumberColumn("ФБО", format="%d ₽"),
-            "Чистая Прибыль": st.column_config.TextColumn("Чистая Прибыль")
+            "FBS (₽)": st.column_config.NumberColumn("FBS", format="%d ₽"),
+            "FBO (₽)": st.column_config.NumberColumn("FBO", format="%d ₽"),
+            "Чистая Прибыль": st.column_config.TextColumn("Чистая Прибыль и динамика")
         },
-        column_order=["Месяц", "Статус", "Выручка (₽)", "Штук", "ФБС (₽)", "ФБО (₽)", "Чистая Прибыль"],
-        hide_index=True, use_container_width=True, height=600
+        column_order=["Месяц", "Статус", "Выручка (₽)", "Штук", "FBS (₽)", "FBO (₽)", "Чистая Прибыль"],
+        hide_index=True, use_container_width=True, height=500
     )
 
 else:
