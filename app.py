@@ -21,7 +21,7 @@ def fmt_num(val):
     return f"{val:,.0f}".replace(',', ' ')
 
 # --- 1. КОНФИГУРАЦИЯ И ЧИСТЫЙ СИСТЕМНЫЙ CSS ---
-st.set_page_config(page_title="Dwin Home | OS", page_icon="🐺", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Отдел продаж", page_icon="🐺", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
