@@ -580,7 +580,7 @@ if not df_fbo.empty or not df_fbs.empty:
         
     df_table['Чистая Прибыль'] = df_table.apply(format_profit, axis=1)
 
-    st.table(
+    st.dataframe(
         df_table,
         column_config={
             "Месяц": st.column_config.TextColumn("Месяц"),
@@ -592,7 +592,7 @@ if not df_fbo.empty or not df_fbs.empty:
             "Чистая Прибыль": st.column_config.TextColumn("Чистая Прибыль")
         },
         column_order=["Месяц", "Статус", "Выручка (₽)", "Штук", "ФБС (₽)", "ФБО (₽)", "Чистая Прибыль"],
-        hide_index=True, use_container_width=True
+        hide_index=True, use_container_width=True, height=900
     )
 
 else:
