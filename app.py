@@ -101,15 +101,17 @@ df_fbo = process_data(fbo_file, "FBO")
 df_fbs = process_data(fbs_file, "FBS")
 
 if not df_fbo.empty or not df_fbs.empty:
-    # 1. Сохраняем полный датафрейм (с отменами) для отдельного графика
     df_full = pd.concat([df_fbo, df_fbs], ignore_index=True)
     
-    # 2. Считаем глобальные отмены (сумма и количество) для красной карточки KPI
     total_cancelled_rev = df_full[df_full.get('Статус') == 'Отменён']['Выручка'].sum() if 'Статус' in df_full.columns else 0
     total_cancelled_orders = df_full[df_full.get('Статус') == 'Отменён']['Номер заказа'].nunique() if 'Статус' in df_full.columns else 0
 
-    # 3. Очищаем основной df от отмененных заказов. Теперь все графики и таблицы будут считать чистую выручку
-    if 'Статус' in df_full.columns:
+    # ДОБАВЛЕН ПАРАМЕТР: Переключатель учета отмен
+    exclude_cancels = st.toggle("📉 Вычитать отмененные заказы из общей статистики", value=False, help="Если выключено, графики и прогнозы показывают все факты продаж.")
+    st.markdown("<br>", unsafe_allow_html=True) # Небольшой отступ
+
+    # Основной df теперь по умолчанию содержит ВСЕ продажи (без учета отмен)
+    if exclude_cancels and 'Статус' in df_full.columns:
         df = df_full[df_full['Статус'] != 'Отменён']
     else:
         df = df_full
@@ -306,13 +308,14 @@ if not df_fbo.empty or not df_fbs.empty:
     fig_monthly.add_trace(go.Bar(x=df_monthly_viz['Месяц'], y=df_monthly_viz['FBO_Выручка'], name='FBO', marker_color='#005BFF', customdata=df_monthly_viz['Hover'], hovertemplate="%{customdata}<extra></extra>"))
     
     fig_monthly.update_layout(
-        barmode='stack', hovermode='closest', 
+        barmode='stack', hovermode='closest', dragmode=False, 
         hoverlabel=dict(bgcolor="white", font_size=13, bordercolor="#E5E7EB"),
         plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'),
         margin=dict(t=10, b=0, l=0, r=0), height=450,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
-    fig_monthly.update_yaxes(showgrid=True, gridcolor='#E5E7EB', title="Выручка (₽)")
+    fig_monthly.update_xaxes(fixedrange=True)
+    fig_monthly.update_yaxes(showgrid=True, gridcolor='#E5E7EB', title="Выручка (₽)", fixedrange=True)
     st.plotly_chart(fig_monthly, use_container_width=True, config=PLOT_CONFIG)
 
     st.markdown("<hr>", unsafe_allow_html=True)
@@ -340,9 +343,9 @@ if not df_fbo.empty or not df_fbs.empty:
         # Добавляем суммарную серую линию отмен
         fig_sales.add_trace(go.Scatter(x=all_dates, y=cancelled_daily, name='Отмены (₽)', mode='lines', line=dict(color='#9CA3AF', width=1)))
         
-        fig_sales.update_layout(hovermode="x unified", plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'), margin=dict(t=10, b=10, l=0, r=0))
-        fig_sales.update_xaxes(type='date', showgrid=True, gridcolor='#E5E7EB', tickformat="%d %b")
-        fig_sales.update_yaxes(showgrid=True, gridcolor='#E5E7EB', title="Реальная выручка (₽)")
+        fig_sales.update_layout(hovermode="x unified", dragmode=False, plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'), margin=dict(t=10, b=10, l=0, r=0))
+        fig_sales.update_xaxes(type='date', showgrid=True, gridcolor='#E5E7EB', tickformat="%d %b", fixedrange=True)
+        fig_sales.update_yaxes(showgrid=True, gridcolor='#E5E7EB', title="Реальная выручка (₽)", fixedrange=True)
         st.plotly_chart(fig_sales, use_container_width=True, config=PLOT_CONFIG)
         
         # 2. ОРГАНИЧЕСКИЙ ТРЕНД (Очищено от оптовых аномалий)
@@ -358,9 +361,9 @@ if not df_fbo.empty or not df_fbs.empty:
         
         fig_trend = go.Figure()
         fig_trend.add_trace(go.Scatter(x=all_dates, y=trend_7d, name='SMA-7 (Органический тренд)', mode='lines', fill='tozeroy', line=dict(color='#8B5CF6', width=3), fillcolor='rgba(139, 92, 246, 0.2)'))
-        fig_trend.update_layout(hovermode="x unified", plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'), margin=dict(t=10, b=10, l=0, r=0), height=300)
-        fig_trend.update_xaxes(type='date', showgrid=True, gridcolor='#E5E7EB', tickformat="%d %b")
-        fig_trend.update_yaxes(showgrid=True, gridcolor='#E5E7EB', title="Усредненная выручка (₽)")
+        fig_trend.update_layout(hovermode="x unified", dragmode=False, plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'), margin=dict(t=10, b=10, l=0, r=0), height=300)
+        fig_trend.update_xaxes(type='date', showgrid=True, gridcolor='#E5E7EB', tickformat="%d %b", fixedrange=True)
+        fig_trend.update_yaxes(showgrid=True, gridcolor='#E5E7EB', title="Усредненная выручка (₽)", fixedrange=True)
         st.plotly_chart(fig_trend, use_container_width=True, config=PLOT_CONFIG)
 
     st.markdown("<hr>", unsafe_allow_html=True)
@@ -378,7 +381,7 @@ if not df_fbo.empty or not df_fbs.empty:
         df['Время_Суток'] = df['Час'].apply(categorize_time)
         tod_stats = df.groupby('Время_Суток')['Client_ID'].nunique().reset_index()
         fig_pie = px.pie(tod_stats, values='Client_ID', names='Время_Суток', hole=0.5, title="По времени суток", color_discrete_sequence=px.colors.sequential.Teal)
-        fig_pie.update_layout(plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'))
+        fig_pie.update_layout(plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'), dragmode=False)
         st.plotly_chart(fig_pie, use_container_width=True, config=PLOT_CONFIG)
         
     with col_aud2:
@@ -392,9 +395,10 @@ if not df_fbo.empty or not df_fbs.empty:
         dow_stats['Percent'] = (dow_stats['Client_ID'] / total_visits) * 100
         
         fig_dow = px.bar(dow_stats, x='Day_RU', y='Percent', title="По дням недели (%)", text=dow_stats['Percent'].apply(lambda x: f"{x:.1f}%"))
-        fig_dow.update_layout(plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'))
+        fig_dow.update_layout(plot_bgcolor='white', paper_bgcolor='white', font=dict(color='#111827'), dragmode=False)
         fig_dow.update_traces(marker_color='#10B981', textposition='outside')
-        fig_dow.update_yaxes(title="Доля от всех визитов (%)", showgrid=True, gridcolor='#E5E7EB')
+        fig_dow.update_xaxes(fixedrange=True)
+        fig_dow.update_yaxes(title="Доля от всех визитов (%)", showgrid=True, gridcolor='#E5E7EB', fixedrange=True)
         st.plotly_chart(fig_dow, use_container_width=True, config=PLOT_CONFIG)
 
     st.markdown("<hr>", unsafe_allow_html=True)
